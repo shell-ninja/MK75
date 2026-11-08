@@ -55,6 +55,7 @@ class KeyConfigPanel(QFrame):
         self.active_target_id: str = "KEY_ESC"
         self.selected_target_key: Optional[str] = "KEY_ESC"
         self.modifier_buttons: Dict[str, QPushButton] = {}
+        self._is_loading = False
 
         self._build_ui()
 
@@ -229,6 +230,7 @@ class KeyConfigPanel(QFrame):
         tab_macro_layout.addWidget(QLabel("Select a saved macro sequence to trigger:"))
         self.macro_combo = QComboBox()
         configure_dark_combobox(self.macro_combo)
+        self.macro_combo.currentIndexChanged.connect(self._on_macro_combo_changed)
         tab_macro_layout.addWidget(self.macro_combo)
         tab_macro_layout.addStretch()
         self.tabs.addTab(self.tab_macro, get_icon("macro", size=14), "Macro Sequence")
@@ -241,6 +243,7 @@ class KeyConfigPanel(QFrame):
         tab_cmd_layout.addWidget(QLabel("Execute custom Linux shell command when pressed:"))
         self.cmd_input = QLineEdit()
         self.cmd_input.setPlaceholderText("e.g. kitty & or pactl set-sink-volume @DEFAULT_SINK@ +5%")
+        self.cmd_input.editingFinished.connect(self._on_command_editing_finished)
         tab_cmd_layout.addWidget(self.cmd_input)
 
         presets_lbl = QLabel("Quick Command Presets:")
@@ -252,7 +255,7 @@ class KeyConfigPanel(QFrame):
         for name, cmd in COMMAND_PRESETS:
             btn = QPushButton(name)
             btn.setStyleSheet("font-size: 11px; padding: 4px 8px; background: #161A26;")
-            btn.clicked.connect(lambda _, c=cmd: self.cmd_input.setText(c))
+            btn.clicked.connect(lambda _, c=cmd: self._apply_preset_command(c))
             presets_layout.addWidget(btn)
         presets_layout.addStretch()
         tab_cmd_layout.addLayout(presets_layout)
@@ -271,12 +274,13 @@ class KeyConfigPanel(QFrame):
 
         btn_layout.addStretch()
 
-        self.apply_btn = QPushButton("Apply Mapping")
-        self.apply_btn.setIcon(get_icon("check", normal_color="#FFFFFF", size=14))
-        self.apply_btn.setObjectName("PrimaryButton")
-        self.apply_btn.setMinimumHeight(38)
-        self.apply_btn.clicked.connect(self._on_apply_remap)
-        btn_layout.addWidget(self.apply_btn)
+        self.auto_save_pill = QLabel("Auto-applies immediately")
+        self.auto_save_pill.setObjectName("Badge")
+        self.auto_save_pill.setStyleSheet(
+            "color: #10B981; background-color: #13261C; border: 1px solid #1E4D38; "
+            "padding: 5px 12px; font-size: 11px; font-weight: 500; border-radius: 4px;"
+        )
+        btn_layout.addWidget(self.auto_save_pill)
 
         layout.addLayout(btn_layout)
 
@@ -287,13 +291,19 @@ class KeyConfigPanel(QFrame):
         self.selected_target_key = code
         self.key_capture_box.set_key(code)
         self._sync_combo_to_key(code)
+        if not self._is_loading:
+            self._auto_apply_key(code)
 
     def _on_key_captured(self, code: str):
         self.selected_target_key = code
         self._sync_combo_to_key(code)
+        if not self._is_loading:
+            self._auto_apply_key(code)
 
     def _on_shortcut_recorded(self, keys: List[str]):
         self._sync_modifier_chips(keys)
+        if not self._is_loading:
+            self._auto_apply_shortcut(keys)
 
     def _on_modifiers_updated(self, held_mods: Set[str]):
         for mod_code, btn in self.modifier_buttons.items():
@@ -307,6 +317,23 @@ class KeyConfigPanel(QFrame):
     def _apply_preset_shortcut(self, keys: List[str]):
         self.shortcut_capture_box.set_keys(keys)
         self._sync_modifier_chips(keys)
+        if not self._is_loading:
+            self._auto_apply_shortcut(keys)
+
+    def _apply_preset_command(self, cmd: str):
+        self.cmd_input.setText(cmd)
+        if not self._is_loading:
+            self._auto_apply_command(cmd)
+
+    def _on_command_editing_finished(self):
+        if not self._is_loading:
+            self._auto_apply_command(self.cmd_input.text())
+
+    def _on_macro_combo_changed(self):
+        if not self._is_loading:
+            macro_id = self.macro_combo.currentData()
+            if macro_id:
+                self._auto_apply_macro(macro_id)
 
     def _sync_modifier_chips(self, keys: List[str]):
         for mod_code, btn in self.modifier_buttons.items():
@@ -336,6 +363,8 @@ class KeyConfigPanel(QFrame):
         if code:
             self.selected_target_key = code
             self.key_capture_box.set_key(code)
+            if not self._is_loading:
+                self._auto_apply_key(code)
 
     def _populate_keys_combo(self):
         cat = self.cat_combo.currentText()
@@ -347,12 +376,15 @@ class KeyConfigPanel(QFrame):
         self.key_action_combo.blockSignals(False)
 
     def _populate_macros_combo(self):
+        self.macro_combo.blockSignals(True)
         self.macro_combo.clear()
         macros = self.profile_manager.get_macros()
         for m in macros:
             self.macro_combo.addItem(m.get("name", "Unnamed"), m.get("id"))
+        self.macro_combo.blockSignals(False)
 
     def set_key(self, key_def: KeyDef):
+        self._is_loading = True
         self.current_key = key_def
         self._populate_macros_combo()
 
@@ -365,24 +397,30 @@ class KeyConfigPanel(QFrame):
             self.active_target_id = key_def.id
             self.title_label.setText(f"Key: {key_def.label} ({key_def.keycode_name})")
 
-        self._load_active_mapping()
+        self._load_active_mapping(skip_tab=False)
+        self._is_loading = False
 
     def _on_knob_action_changed(self):
         if self.current_key and self.current_key.is_knob:
+            self._is_loading = True
             self.active_target_id = self.knob_combo.currentData()
-            self._load_active_mapping()
+            self._load_active_mapping(skip_tab=False)
+            self._is_loading = False
 
-    def _load_active_mapping(self):
+    def _load_active_mapping(self, skip_tab: bool = False):
         remap = self.profile_manager.get_remapping(self.active_target_id)
         if not remap:
             self.status_badge.setText("Default")
             self.status_badge.setStyleSheet("color: #9CA3AF; background-color: #1A1F2C; border: 1px solid #283042; padding: 3px 8px; border-radius: 4px;")
             self.status_badge.adjustSize()
             default_key = self.current_key.keycode_name if (self.current_key and not self.current_key.is_knob) else "KEY_MUTE"
-            self._select_target_key(default_key)
+            self.selected_target_key = default_key
+            self.key_capture_box.set_key(default_key)
+            self._sync_combo_to_key(default_key)
             self.cmd_input.clear()
-            # If knob, default tab is Key/Media (tab 1); if key switch, default tab is Shortcut (tab 0)
-            self.tabs.setCurrentIndex(1 if (self.current_key and self.current_key.is_knob) else 0)
+            if not skip_tab:
+                # If knob, default tab is Key/Media (tab 1); if key switch, default tab is Shortcut (tab 0)
+                self.tabs.setCurrentIndex(1 if (self.current_key and self.current_key.is_knob) else 0)
             return
 
         remap_type = remap.get("type")
@@ -392,7 +430,8 @@ class KeyConfigPanel(QFrame):
             self.status_badge.setText(f"Shortcut: {clean_str}")
             self.status_badge.setStyleSheet("color: #38BDF8; background-color: #122538; border: 1px solid #1D4363; padding: 3px 8px; border-radius: 4px;")
             self.status_badge.adjustSize()
-            self.tabs.setCurrentIndex(0)
+            if not skip_tab:
+                self.tabs.setCurrentIndex(0)
             self.shortcut_capture_box.set_keys(keys)
             self._sync_modifier_chips(keys)
         elif remap_type == "key":
@@ -401,52 +440,69 @@ class KeyConfigPanel(QFrame):
             self.status_badge.setText(f"Mapped: {clean_name}")
             self.status_badge.setStyleSheet("color: #6366F1; background-color: #1D1E3A; border: 1px solid #34376E; padding: 3px 8px; border-radius: 4px;")
             self.status_badge.adjustSize()
-            self.tabs.setCurrentIndex(1)
-            self._select_target_key(target)
+            if not skip_tab:
+                self.tabs.setCurrentIndex(1)
+            self.selected_target_key = target
+            self.key_capture_box.set_key(target)
+            self._sync_combo_to_key(target)
         elif remap_type == "macro":
             self.status_badge.setText("Macro Assigned")
             self.status_badge.setStyleSheet("color: #A855F7; background-color: #271638; border: 1px solid #48236A; padding: 3px 8px; border-radius: 4px;")
             self.status_badge.adjustSize()
-            self.tabs.setCurrentIndex(2)
+            if not skip_tab:
+                self.tabs.setCurrentIndex(2)
             macro_id = remap.get("macro_id")
             for i in range(self.macro_combo.count()):
                 if self.macro_combo.itemData(i) == macro_id:
+                    self.macro_combo.blockSignals(True)
                     self.macro_combo.setCurrentIndex(i)
+                    self.macro_combo.blockSignals(False)
                     break
         elif remap_type == "command":
             self.status_badge.setText("Shell Command")
             self.status_badge.setStyleSheet("color: #10B981; background-color: #13261C; border: 1px solid #1E4D38; padding: 3px 8px; border-radius: 4px;")
             self.status_badge.adjustSize()
-            self.tabs.setCurrentIndex(3)
+            if not skip_tab:
+                self.tabs.setCurrentIndex(3)
             self.cmd_input.setText(remap.get("command", ""))
 
-    def _on_apply_remap(self):
-        tab_idx = self.tabs.currentIndex()
-        if tab_idx == 0:  # Shortcut
-            keys = self.shortcut_capture_box.captured_keys
-            if keys:
-                self.profile_manager.set_remapping(self.active_target_id, {
-                    "type": "shortcut",
-                    "name": f"Shortcut for {self.active_target_id}",
-                    "keys": list(keys)
-                })
-        elif tab_idx == 1:  # Single Key / Media
-            target_key = self.selected_target_key or self.key_action_combo.currentData()
-            if target_key:
-                self.profile_manager.set_key_remap(self.active_target_id, target_key)
-        elif tab_idx == 2:  # Macro
-            macro_id = self.macro_combo.currentData()
-            if macro_id:
-                self.profile_manager.set_macro_remap(self.active_target_id, macro_id)
-        elif tab_idx == 3:  # Linux Command
-            cmd = self.cmd_input.text().strip()
-            if cmd:
-                self.profile_manager.set_command_remap(self.active_target_id, cmd)
+    def _auto_apply_shortcut(self, keys: List[str]):
+        if not keys or not self.active_target_id:
+            return
+        self.profile_manager.set_remapping(self.active_target_id, {
+            "type": "shortcut",
+            "name": f"Shortcut for {self.active_target_id}",
+            "keys": list(keys)
+        })
+        self._load_active_mapping(skip_tab=True)
+        self.remap_changed.emit()
 
-        self._load_active_mapping()
+    def _auto_apply_key(self, code: str):
+        if not code or not self.active_target_id:
+            return
+        self.profile_manager.set_key_remap(self.active_target_id, code)
+        self._load_active_mapping(skip_tab=True)
+        self.remap_changed.emit()
+
+    def _auto_apply_macro(self, macro_id: str):
+        if not macro_id or not self.active_target_id:
+            return
+        self.profile_manager.set_macro_remap(self.active_target_id, macro_id)
+        self._load_active_mapping(skip_tab=True)
+        self.remap_changed.emit()
+
+    def _auto_apply_command(self, cmd: str):
+        if not self.active_target_id:
+            return
+        cmd = cmd.strip()
+        if cmd:
+            self.profile_manager.set_command_remap(self.active_target_id, cmd)
+        else:
+            self.profile_manager.clear_remap(self.active_target_id)
+        self._load_active_mapping(skip_tab=True)
         self.remap_changed.emit()
 
     def _on_reset_remap(self):
         self.profile_manager.clear_remap(self.active_target_id)
-        self._load_active_mapping()
+        self._load_active_mapping(skip_tab=True)
         self.remap_changed.emit()

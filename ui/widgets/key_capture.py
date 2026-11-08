@@ -91,12 +91,13 @@ class KeyCaptureBox(QPushButton):
         self._update_display()
         self.clicked.connect(self._toggle_recording)
 
-    def set_keys(self, keys: List[str]):
+    def set_keys(self, keys: List[str], emit_signal: bool = False):
         self.captured_keys = list(keys)
         self.recording = False
         self.held_modifiers.clear()
         self._update_display()
-        self.shortcut_recorded.emit(self.captured_keys)
+        if emit_signal:
+            self.shortcut_recorded.emit(self.captured_keys)
 
     def set_modifier_toggled(self, mod_code: str, active: bool):
         """Called when user clicks an interactive modifier pill."""
