@@ -19,7 +19,8 @@ from core.hid_controller import (
 from ui.icons import get_icon
 from ui.theme import (
     BG_CARD, BORDER_COLOR, ACCENT_PRIMARY, ACCENT_SKY,
-    ACCENT_EMERALD, ACCENT_ROSE, TEXT_PRIMARY, TEXT_MUTED
+    ACCENT_EMERALD, ACCENT_ROSE, TEXT_PRIMARY, TEXT_MUTED,
+    configure_dark_combobox
 )
 
 # Preset Packet Payloads for Instant Testing (Report 0x13 and Report 0x06)
@@ -72,6 +73,7 @@ class InspectorView(QWidget):
         cfg_row = QHBoxLayout()
         cfg_row.addWidget(QLabel("Target Report ID:"))
         self.report_id_combo = QComboBox()
+        configure_dark_combobox(self.report_id_combo)
         self.report_id_combo.addItem("Report 0x06 (Primary Vendor Feature)", 0x06)
         self.report_id_combo.addItem("Report 0x13 (Secondary Vendor Channel)", 0x13)
         self.report_id_combo.addItem("Report 0x05 (Consumer / Control)", 0x05)
@@ -81,6 +83,7 @@ class InspectorView(QWidget):
         cfg_row.addSpacing(20)
         cfg_row.addWidget(QLabel("Quick Templates:"))
         self.template_combo = QComboBox()
+        configure_dark_combobox(self.template_combo)
         self.template_combo.addItem("-- Select Preset Packet --")
         for name, payload in PAYLOAD_PRESETS:
             self.template_combo.addItem(name, payload)

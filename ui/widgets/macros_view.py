@@ -18,9 +18,11 @@ from core.macro_engine import MacroEngine
 from ui.icons import get_icon
 from ui.theme import (
     BG_CARD, BORDER_COLOR, ACCENT_PRIMARY, ACCENT_SKY,
-    ACCENT_EMERALD, ACCENT_ROSE, ACCENT_AMBER, TEXT_PRIMARY, TEXT_MUTED
+    ACCENT_EMERALD, ACCENT_ROSE, ACCENT_AMBER, TEXT_PRIMARY, TEXT_MUTED,
+    configure_dark_combobox
 )
 from ui.widgets.keyboard_visualizer import KeyboardVisualizer
+from ui.widgets.key_capture import KeyCaptureBox, PRESET_SHORTCUTS
 
 # Standard Linux App & System Presets
 PRESET_COMMANDS = [
@@ -32,208 +34,6 @@ PRESET_COMMANDS = [
     ("Lock Session", "loginctl lock-session"),
     ("File Manager", "xdg-open ~ &"),
 ]
-
-# Standard Shortcut Chips
-PRESET_SHORTCUTS = [
-    ("Ctrl+C (Copy)", ["KEY_LEFTCTRL", "KEY_C"]),
-    ("Ctrl+V (Paste)", ["KEY_LEFTCTRL", "KEY_V"]),
-    ("Ctrl+Z (Undo)", ["KEY_LEFTCTRL", "KEY_Z"]),
-    ("Ctrl+A (Select All)", ["KEY_LEFTCTRL", "KEY_A"]),
-    ("Ctrl+W (Close Tab)", ["KEY_LEFTCTRL", "KEY_W"]),
-    ("Ctrl+Shift+T (Reopen)", ["KEY_LEFTCTRL", "KEY_LEFTSHIFT", "KEY_T"]),
-    ("Ctrl+Alt+T (Terminal)", ["KEY_LEFTCTRL", "KEY_LEFTALT", "KEY_T"]),
-    ("Alt+Tab (Switch App)", ["KEY_LEFTALT", "KEY_TAB"]),
-    ("Super+D (Desktop)", ["KEY_LEFTMETA", "KEY_D"]),
-    ("Super+Space (Launcher)", ["KEY_LEFTMETA", "KEY_SPACE"]),
-]
-
-MODIFIERS_MAP = {
-    Qt.Key_Control: "KEY_LEFTCTRL",
-    Qt.Key_Shift: "KEY_LEFTSHIFT",
-    Qt.Key_Alt: "KEY_LEFTALT",
-    Qt.Key_AltGr: "KEY_RIGHTALT",
-    Qt.Key_Meta: "KEY_LEFTMETA",
-    Qt.Key_Super_L: "KEY_LEFTMETA",
-    Qt.Key_Super_R: "KEY_RIGHTMETA",
-}
-
-EVDEV_KEY_MAP = {
-    Qt.Key_Return: "KEY_ENTER",
-    Qt.Key_Enter: "KEY_KPENTER",
-    Qt.Key_Tab: "KEY_TAB",
-    Qt.Key_Backtab: "KEY_TAB",
-    Qt.Key_Space: "KEY_SPACE",
-    Qt.Key_Backspace: "KEY_BACKSPACE",
-    Qt.Key_Delete: "KEY_DELETE",
-    Qt.Key_Insert: "KEY_INSERT",
-    Qt.Key_Home: "KEY_HOME",
-    Qt.Key_End: "KEY_END",
-    Qt.Key_PageUp: "KEY_PAGEUP",
-    Qt.Key_PageDown: "KEY_PAGEDOWN",
-    Qt.Key_Left: "KEY_LEFT",
-    Qt.Key_Right: "KEY_RIGHT",
-    Qt.Key_Up: "KEY_UP",
-    Qt.Key_Down: "KEY_DOWN",
-    Qt.Key_Escape: "KEY_ESC",
-    Qt.Key_CapsLock: "KEY_CAPSLOCK",
-    Qt.Key_ScrollLock: "KEY_SCROLLLOCK",
-    Qt.Key_NumLock: "KEY_NUMLOCK",
-    Qt.Key_Print: "KEY_SYSRQ",
-    Qt.Key_Pause: "KEY_PAUSE",
-    Qt.Key_Minus: "KEY_MINUS",
-    Qt.Key_Equal: "KEY_EQUAL",
-    Qt.Key_BracketLeft: "KEY_LEFTBRACE",
-    Qt.Key_BracketRight: "KEY_RIGHTBRACE",
-    Qt.Key_Semicolon: "KEY_SEMICOLON",
-    Qt.Key_Apostrophe: "KEY_APOSTROPHE",
-    Qt.Key_QuoteLeft: "KEY_GRAVE",
-    Qt.Key_Backslash: "KEY_BACKSLASH",
-    Qt.Key_Comma: "KEY_COMMA",
-    Qt.Key_Period: "KEY_DOT",
-    Qt.Key_Slash: "KEY_SLASH",
-}
-
-
-class KeyCaptureBox(QPushButton):
-    """
-    Interactive button that records physical keystroke shortcuts (modifiers + target key).
-    Properly handles modifier keys without prematurely ending recording, allowing multi-key combinations.
-    """
-
-    shortcut_recorded = Signal(list)
-    modifiers_updated = Signal(set)
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.recording = False
-        self.captured_keys: List[str] = ["KEY_LEFTCTRL", "KEY_LEFTSHIFT", "KEY_T"]
-        self.held_modifiers: Set[str] = set()
-        self.setMinimumHeight(48)
-        self.setCursor(Qt.PointingHandCursor)
-        self._update_display()
-        self.clicked.connect(self._toggle_recording)
-
-    def set_keys(self, keys: List[str]):
-        self.captured_keys = list(keys)
-        self.recording = False
-        self.held_modifiers.clear()
-        self._update_display()
-        self.shortcut_recorded.emit(self.captured_keys)
-
-    def set_modifier_toggled(self, mod_code: str, active: bool):
-        """Called when user clicks an interactive modifier pill."""
-        current_mods = [k for k in self.captured_keys if k in ("KEY_LEFTCTRL", "KEY_LEFTSHIFT", "KEY_LEFTALT", "KEY_LEFTMETA")]
-        primary_keys = [k for k in self.captured_keys if k not in ("KEY_LEFTCTRL", "KEY_LEFTSHIFT", "KEY_LEFTALT", "KEY_LEFTMETA")]
-
-        mod_set = set(current_mods)
-        if active:
-            mod_set.add(mod_code)
-        else:
-            mod_set.discard(mod_code)
-
-        ordered = []
-        for m in ("KEY_LEFTCTRL", "KEY_LEFTSHIFT", "KEY_LEFTALT", "KEY_LEFTMETA"):
-            if m in mod_set:
-                ordered.append(m)
-
-        # Default primary key to T if none set yet
-        if not primary_keys:
-            primary_keys = ["KEY_T"]
-
-        self.captured_keys = ordered + primary_keys
-        self._update_display()
-        self.shortcut_recorded.emit(self.captured_keys)
-
-    def _update_display(self):
-        if self.recording:
-            if self.held_modifiers:
-                readable = [k.replace("KEY_LEFT", "").replace("KEY_", "") for k in sorted(self.held_modifiers)]
-                mod_str = " + ".join(readable)
-                self.setText(f"Listening...  [ {mod_str} + ... ]  Press key to finish (or Esc to cancel)")
-            else:
-                self.setText("Listening... Press shortcut on keyboard (e.g. Ctrl + Shift + T)")
-            self.setStyleSheet(
-                "background-color: #2D2418; color: #F59E0B; border: 2px dashed #D97706; "
-                "font-size: 13px; font-weight: 600; border-radius: 8px;"
-            )
-        else:
-            if not self.captured_keys:
-                self.setText("Click to record shortcut directly from keyboard...")
-                self.setStyleSheet(
-                    "background-color: #171A26; color: #8A94A6; border: 1px dashed #2E384D; "
-                    "font-size: 13px; border-radius: 8px;"
-                )
-            else:
-                readable = [k.replace("KEY_LEFT", "").replace("KEY_RIGHT", "").replace("KEY_", "") for k in self.captured_keys]
-                label_text = "  +  ".join(readable)
-                self.setText(f"Shortcut:  [ {label_text} ]   (Click here to re-record)")
-                self.setStyleSheet(
-                    "background-color: #1A2236; color: #FFFFFF; border: 1px solid #3B4666; "
-                    "font-size: 13px; font-weight: 600; border-radius: 8px;"
-                )
-
-    def _toggle_recording(self):
-        self.recording = not self.recording
-        self.held_modifiers.clear()
-        self._update_display()
-
-    def keyPressEvent(self, event: QKeyEvent):
-        if not self.recording:
-            super().keyPressEvent(event)
-            return
-
-        key_val = event.key()
-
-        # Cancel on Escape when no modifier is held
-        if key_val == Qt.Key_Escape and not self.held_modifiers:
-            self.recording = False
-            self.held_modifiers.clear()
-            self._update_display()
-            return
-
-        # 1. Check if the key pressed is a modifier (Control, Shift, Alt, Meta)
-        if key_val in MODIFIERS_MAP:
-            mod_name = MODIFIERS_MAP[key_val]
-            self.held_modifiers.add(mod_name)
-            self._update_display()
-            self.modifiers_updated.emit(self.held_modifiers)
-            return  # Keep recording open! Wait for next key!
-
-        # 2. Key is a non-modifier! Collect all held modifiers
-        mods = event.modifiers()
-        active_mods = set(self.held_modifiers)
-        if mods & Qt.ControlModifier:
-            active_mods.add("KEY_LEFTCTRL")
-        if mods & Qt.ShiftModifier:
-            active_mods.add("KEY_LEFTSHIFT")
-        if mods & Qt.AltModifier:
-            active_mods.add("KEY_LEFTALT")
-        if mods & Qt.MetaModifier:
-            active_mods.add("KEY_LEFTMETA")
-
-        # 3. Resolve primary key name
-        primary_key = None
-        if key_val in EVDEV_KEY_MAP:
-            primary_key = EVDEV_KEY_MAP[key_val]
-        elif Qt.Key_A <= key_val <= Qt.Key_Z:
-            primary_key = f"KEY_{chr(key_val)}"
-        elif Qt.Key_0 <= key_val <= Qt.Key_9:
-            primary_key = f"KEY_{chr(key_val)}"
-        elif Qt.Key_F1 <= key_val <= Qt.Key_F12:
-            primary_key = f"KEY_F{key_val - Qt.Key_F1 + 1}"
-
-        if primary_key:
-            keys = []
-            for m in ("KEY_LEFTCTRL", "KEY_LEFTSHIFT", "KEY_LEFTALT", "KEY_LEFTMETA"):
-                if m in active_mods:
-                    keys.append(m)
-            keys.append(primary_key)
-
-            self.captured_keys = keys
-            self.recording = False
-            self.held_modifiers.clear()
-            self._update_display()
-            self.shortcut_recorded.emit(self.captured_keys)
 
 
 class MacrosView(QWidget):
@@ -342,11 +142,13 @@ class MacrosView(QWidget):
         knob_layout.addWidget(knob_label)
 
         self.knob_combo = QComboBox()
-        self.knob_combo.setView(QListView())
+        self.knob_combo.setFixedWidth(280)
+        configure_dark_combobox(self.knob_combo)
         for action in KNOB_ACTIONS:
             self.knob_combo.addItem(action["label"], action["id"])
         self.knob_combo.currentIndexChanged.connect(self._on_knob_action_changed)
         knob_layout.addWidget(self.knob_combo)
+        knob_layout.addStretch()
         card_layout.addWidget(self.knob_selector_frame)
         self.knob_selector_frame.hide()
 

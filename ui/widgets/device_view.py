@@ -18,7 +18,8 @@ from core.hid_controller import MK75HardwareController, POLLING_RATES
 from ui.icons import get_icon
 from ui.theme import (
     BG_CARD, BORDER_COLOR, ACCENT_PRIMARY, ACCENT_SKY,
-    ACCENT_EMERALD, ACCENT_ROSE, ACCENT_AMBER, TEXT_PRIMARY, TEXT_MUTED
+    ACCENT_EMERALD, ACCENT_ROSE, ACCENT_AMBER, TEXT_PRIMARY, TEXT_MUTED,
+    configure_dark_combobox
 )
 
 class DeviceView(QWidget):
@@ -212,7 +213,7 @@ class DeviceView(QWidget):
         tuning_row = QHBoxLayout()
         tuning_row.addWidget(QLabel("USB Polling Rate:"))
         self.poll_combo = QComboBox()
-        self.poll_combo.setView(QListView())
+        configure_dark_combobox(self.poll_combo)
         for rate in POLLING_RATES.keys():
             self.poll_combo.addItem(rate)
         self.poll_combo.setCurrentText("1000Hz")

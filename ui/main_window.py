@@ -205,7 +205,7 @@ class MainWindow(QMainWindow):
         self.config_panel.remap_changed.connect(self.visualizer.update)
         self.config_panel.remap_changed.connect(self.page_macros.visualizer.update)
         self.page_macros.macro_changed.connect(self.visualizer.update)
-        self.page_macros.macro_changed.connect(lambda: self.config_panel.set_key(self.visualizer.selected_key_id if hasattr(self.visualizer, "selected_key_id") else None))
+        self.page_macros.macro_changed.connect(lambda: self.visualizer.select_key(self.visualizer.selected_key_id))
         self.remapper.add_key_listener(self._on_hardware_keypress)
         self.page_lighting.lighting_applied.connect(lambda _: self.visualizer.update())
         self.page_lighting.lighting_applied.connect(lambda _: self.page_macros.visualizer.update())

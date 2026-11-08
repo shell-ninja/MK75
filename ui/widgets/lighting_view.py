@@ -16,7 +16,7 @@ from core.hid_controller import RGB_EFFECTS, MK75HardwareController
 from ui.icons import get_icon
 from ui.theme import (
     BG_CARD, BORDER_COLOR, ACCENT_PRIMARY, ACCENT_SKY,
-    ACCENT_EMERALD, TEXT_PRIMARY, TEXT_MUTED
+    ACCENT_EMERALD, TEXT_PRIMARY, TEXT_MUTED, configure_dark_combobox
 )
 
 # Vibrant preset palettes
@@ -113,7 +113,7 @@ class LightingView(QWidget):
         fx_label = QLabel("Lighting Effect (16 Modes):")
         fx_label.setStyleSheet("font-weight: 600;")
         self.fx_combo = QComboBox()
-        self.fx_combo.setView(QListView())
+        configure_dark_combobox(self.fx_combo)
         for fx in RGB_EFFECTS:
             self.fx_combo.addItem(f"{fx['id']}: {fx['name']}", fx["id"])
         self.fx_combo.currentIndexChanged.connect(self._on_effect_changed)

@@ -1,65 +1,22 @@
 """
 Key and Rotary Knob Remapping Configuration Drawer / Panel.
-Allows remapping keys to standard keycodes, macros, or arbitrary Linux shell commands.
-Includes interactive physical key capture, quick media chips, and category selectors.
+Allows remapping keys to multi-key shortcuts, standard keycodes, macros, or arbitrary Linux shell commands.
+Includes interactive shortcut capture, modifier toggle chips, quick media chips, and command presets.
 """
 
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Set
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTabWidget, QComboBox, QLineEdit, QFrame, QMessageBox, QListView
+    QTabWidget, QComboBox, QLineEdit, QFrame
 )
 
 from config.keycodes import KeyDef, REMAP_ACTION_CATEGORIES, KNOB_ACTIONS
 from ui.icons import get_icon
-from ui.theme import (
-    BG_CARD, BORDER_COLOR, ACCENT_PRIMARY, ACCENT_SKY,
-    TEXT_PRIMARY, TEXT_MUTED
+from ui.theme import configure_dark_combobox
+from ui.widgets.key_capture import (
+    KeyCaptureBox, SingleKeyCaptureBox, PRESET_SHORTCUTS
 )
-
-# Common Qt Key to Linux Evdev Keycode name
-QT_KEY_TO_EVDEV = {
-    Qt.Key_Escape: "KEY_ESC",
-    Qt.Key_Tab: "KEY_TAB",
-    Qt.Key_Backtab: "KEY_TAB",
-    Qt.Key_Backspace: "KEY_BACKSPACE",
-    Qt.Key_Return: "KEY_ENTER",
-    Qt.Key_Enter: "KEY_KPENTER",
-    Qt.Key_Insert: "KEY_INSERT",
-    Qt.Key_Delete: "KEY_DELETE",
-    Qt.Key_Pause: "KEY_PAUSE",
-    Qt.Key_Print: "KEY_SYSRQ",
-    Qt.Key_Home: "KEY_HOME",
-    Qt.Key_End: "KEY_END",
-    Qt.Key_Left: "KEY_LEFT",
-    Qt.Key_Up: "KEY_UP",
-    Qt.Key_Right: "KEY_RIGHT",
-    Qt.Key_Down: "KEY_DOWN",
-    Qt.Key_PageUp: "KEY_PAGEUP",
-    Qt.Key_PageDown: "KEY_PAGEDOWN",
-    Qt.Key_Shift: "KEY_LEFTSHIFT",
-    Qt.Key_Control: "KEY_LEFTCTRL",
-    Qt.Key_Meta: "KEY_LEFTMETA",
-    Qt.Key_Alt: "KEY_LEFTALT",
-    Qt.Key_AltGr: "KEY_RIGHTALT",
-    Qt.Key_CapsLock: "KEY_CAPSLOCK",
-    Qt.Key_NumLock: "KEY_NUMLOCK",
-    Qt.Key_ScrollLock: "KEY_SCROLLLOCK",
-    Qt.Key_Space: "KEY_SPACE",
-    Qt.Key_Minus: "KEY_MINUS",
-    Qt.Key_Equal: "KEY_EQUAL",
-    Qt.Key_BracketLeft: "KEY_LEFTBRACE",
-    Qt.Key_BracketRight: "KEY_RIGHTBRACE",
-    Qt.Key_Semicolon: "KEY_SEMICOLON",
-    Qt.Key_Apostrophe: "KEY_APOSTROPHE",
-    Qt.Key_QuoteLeft: "KEY_GRAVE",
-    Qt.Key_Backslash: "KEY_BACKSLASH",
-    Qt.Key_Comma: "KEY_COMMA",
-    Qt.Key_Period: "KEY_DOT",
-    Qt.Key_Slash: "KEY_SLASH",
-}
 
 # Quick Media / Navigation Shortcuts
 QUICK_MEDIA_CHIPS = [
@@ -74,76 +31,15 @@ QUICK_MEDIA_CHIPS = [
     ("Calc", "KEY_CALC"),
 ]
 
-class SingleKeyCaptureBox(QPushButton):
-    """Button that listens for a single physical keystroke to remap."""
-
-    key_captured = Signal(str)
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.recording = False
-        self.captured_key: Optional[str] = None
-        self.setMinimumHeight(44)
-        self.setCursor(Qt.PointingHandCursor)
-        self._update_display()
-        self.clicked.connect(self._toggle_recording)
-
-    def set_key(self, key_code: Optional[str]):
-        self.captured_key = key_code
-        self.recording = False
-        self._update_display()
-
-    def _update_display(self):
-        if self.recording:
-            self.setText("Listening... Press any key on keyboard (or Esc to cancel)")
-            self.setStyleSheet(
-                "background-color: #2D2418; color: #F59E0B; border: 2px dashed #D97706; "
-                "font-size: 13px; font-weight: 600; border-radius: 8px;"
-            )
-        else:
-            if not self.captured_key:
-                self.setText("Click to record key directly from keyboard...")
-                self.setStyleSheet(
-                    "background-color: #171A26; color: #8A94A6; border: 1px dashed #2E384D; "
-                    "font-size: 13px; border-radius: 8px;"
-                )
-            else:
-                clean_name = self.captured_key.replace("KEY_", "")
-                self.setText(f"Target Key: [ {clean_name} ]  (Click to record new key)")
-                self.setStyleSheet(
-                    "background-color: #1A2236; color: #FFFFFF; border: 1px solid #3B4666; "
-                    "font-size: 13px; font-weight: 600; border-radius: 8px;"
-                )
-
-    def _toggle_recording(self):
-        self.recording = not self.recording
-        self._update_display()
-
-    def keyPressEvent(self, event: QKeyEvent):
-        if not self.recording:
-            super().keyPressEvent(event)
-            return
-
-        key_val = event.key()
-        if key_val == Qt.Key_Escape:
-            self.recording = False
-            self._update_display()
-            return
-
-        evdev_key = QT_KEY_TO_EVDEV.get(key_val)
-        if not evdev_key:
-            if Qt.Key_A <= key_val <= Qt.Key_Z:
-                evdev_key = f"KEY_{chr(key_val)}"
-            elif Qt.Key_0 <= key_val <= Qt.Key_9:
-                evdev_key = f"KEY_{chr(key_val)}"
-            elif Qt.Key_F1 <= key_val <= Qt.Key_F12:
-                evdev_key = f"KEY_F{key_val - Qt.Key_F1 + 1}"
-
-        if evdev_key:
-            self.captured_key = evdev_key
-            self.recording = False
-            self._update_display()
-            self.key_captured.emit(evdev_key)
+# Quick Linux Command Presets
+COMMAND_PRESETS = [
+    ("Terminal", "kitty &"),
+    ("Screenshot", "grim -g \"$(slurp)\" - | wl-copy &"),
+    ("Volume +5%", "pactl set-sink-volume @DEFAULT_SINK@ +5%"),
+    ("Volume -5%", "pactl set-sink-volume @DEFAULT_SINK@ -5%"),
+    ("Mute Mic", "pactl set-source-mute @DEFAULT_SOURCE@ toggle"),
+    ("Next Track", "playerctl next"),
+]
 
 
 class KeyConfigPanel(QFrame):
@@ -158,6 +54,7 @@ class KeyConfigPanel(QFrame):
         self.current_key: Optional[KeyDef] = None
         self.active_target_id: str = "KEY_ESC"
         self.selected_target_key: Optional[str] = "KEY_ESC"
+        self.modifier_buttons: Dict[str, QPushButton] = {}
 
         self._build_ui()
 
@@ -166,11 +63,12 @@ class KeyConfigPanel(QFrame):
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(14)
 
-        # Header Section
+        # 1. Header Section
         header_layout = QHBoxLayout()
         self.title_label = QLabel("Select a Key or the Knob")
         self.title_label.setObjectName("TitleLabel")
         header_layout.addWidget(self.title_label)
+        header_layout.addSpacing(10)
 
         self.status_badge = QLabel("Default")
         self.status_badge.setObjectName("Badge")
@@ -178,7 +76,7 @@ class KeyConfigPanel(QFrame):
         header_layout.addStretch()
         layout.addLayout(header_layout)
 
-        # Knob Action Sub-Selector (Visible only when Knob is selected)
+        # 2. Knob Action Sub-Selector (Visible only when Knob is selected)
         self.knob_selector_frame = QFrame()
         knob_layout = QHBoxLayout(self.knob_selector_frame)
         knob_layout.setContentsMargins(0, 0, 0, 0)
@@ -187,24 +85,96 @@ class KeyConfigPanel(QFrame):
         knob_layout.addWidget(knob_label)
 
         self.knob_combo = QComboBox()
-        self.knob_combo.setView(QListView())
+        self.knob_combo.setFixedWidth(280)
+        configure_dark_combobox(self.knob_combo)
         for action in KNOB_ACTIONS:
             self.knob_combo.addItem(action["label"], action["id"])
         self.knob_combo.currentIndexChanged.connect(self._on_knob_action_changed)
         knob_layout.addWidget(self.knob_combo)
+        knob_layout.addStretch()
         layout.addWidget(self.knob_selector_frame)
         self.knob_selector_frame.hide()
 
-        # Tabs for Remapping Type
+        # 3. Tabs for Remapping Type
         self.tabs = QTabWidget()
 
-        # Tab 1: Direct Key / Media Remap
+        # --- Tab 0: Shortcut (Multi-key combinations) ---
+        self.tab_shortcut = QWidget()
+        tab_sc_layout = QVBoxLayout(self.tab_shortcut)
+        tab_sc_layout.setContentsMargins(14, 14, 14, 14)
+        tab_sc_layout.setSpacing(10)
+
+        sc_desc = QLabel("Assign a multi-key shortcut (press combination or pick from presets):")
+        sc_desc.setStyleSheet("color: #9CA3AF; font-size: 12px;")
+        tab_sc_layout.addWidget(sc_desc)
+
+        self.shortcut_capture_box = KeyCaptureBox()
+        self.shortcut_capture_box.shortcut_recorded.connect(self._on_shortcut_recorded)
+        self.shortcut_capture_box.modifiers_updated.connect(self._on_modifiers_updated)
+        tab_sc_layout.addWidget(self.shortcut_capture_box)
+
+        # Modifier Toggle Chips
+        mod_box = QHBoxLayout()
+        mod_box.setSpacing(6)
+        mod_lbl = QLabel("Modifiers:")
+        mod_lbl.setStyleSheet("color: #9CA3AF; font-size: 11px;")
+        mod_box.addWidget(mod_lbl)
+
+        modifiers = [
+            ("Ctrl", "KEY_LEFTCTRL"),
+            ("Shift", "KEY_LEFTSHIFT"),
+            ("Alt", "KEY_LEFTALT"),
+            ("Super", "KEY_LEFTMETA")
+        ]
+        for label, mod_code in modifiers:
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setStyleSheet(
+                "QPushButton { font-size: 11px; padding: 4px 10px; background: #161A26; border-radius: 4px; }"
+                "QPushButton:checked { background-color: #6366F1; color: #FFFFFF; font-weight: 600; border: 1px solid #7578F8; }"
+            )
+            btn.clicked.connect(lambda checked, m=mod_code: self._toggle_modifier(m, checked))
+            mod_box.addWidget(btn)
+            self.modifier_buttons[mod_code] = btn
+        mod_box.addStretch()
+        tab_sc_layout.addLayout(mod_box)
+
+        # Quick Popular Shortcuts
+        presets_sc_box = QVBoxLayout()
+        presets_sc_box.setSpacing(6)
+        presets_sc_lbl = QLabel("Popular Shortcuts:")
+        presets_sc_lbl.setStyleSheet("color: #9CA3AF; font-size: 11px;")
+        presets_sc_box.addWidget(presets_sc_lbl)
+
+        presets_grid = QHBoxLayout()
+        presets_grid.setSpacing(6)
+        for label, keys in PRESET_SHORTCUTS[:5]:
+            btn = QPushButton(label)
+            btn.setStyleSheet("font-size: 11px; padding: 4px 8px; background: #161A26;")
+            btn.clicked.connect(lambda _, k=keys: self._apply_preset_shortcut(k))
+            presets_grid.addWidget(btn)
+        presets_grid.addStretch()
+        presets_sc_box.addLayout(presets_grid)
+
+        presets_grid_2 = QHBoxLayout()
+        presets_grid_2.setSpacing(6)
+        for label, keys in PRESET_SHORTCUTS[5:]:
+            btn = QPushButton(label)
+            btn.setStyleSheet("font-size: 11px; padding: 4px 8px; background: #161A26;")
+            btn.clicked.connect(lambda _, k=keys: self._apply_preset_shortcut(k))
+            presets_grid_2.addWidget(btn)
+        presets_grid_2.addStretch()
+        presets_sc_box.addLayout(presets_grid_2)
+
+        tab_sc_layout.addLayout(presets_sc_box)
+        self.tabs.addTab(self.tab_shortcut, get_icon("keyboard", size=14), "Shortcut")
+
+        # --- Tab 1: Single Key / Media Remap ---
         self.tab_key = QWidget()
         tab_key_layout = QVBoxLayout(self.tab_key)
         tab_key_layout.setContentsMargins(14, 14, 14, 14)
         tab_key_layout.setSpacing(10)
 
-        # 1. Interactive Key Capture Box
         short_desc = QLabel("Option 1: Click the box below and press any key on your keyboard to assign it directly:")
         short_desc.setStyleSheet("color: #9CA3AF; font-size: 12px;")
         tab_key_layout.addWidget(short_desc)
@@ -213,7 +183,7 @@ class KeyConfigPanel(QFrame):
         self.key_capture_box.key_captured.connect(self._on_key_captured)
         tab_key_layout.addWidget(self.key_capture_box)
 
-        # 2. Quick Media / Volume Chips
+        # Quick Media / Volume Chips
         media_box = QVBoxLayout()
         media_box.setSpacing(6)
         media_lbl = QLabel("Option 2: One-click media & navigation shortcuts:")
@@ -224,19 +194,19 @@ class KeyConfigPanel(QFrame):
         chips_row.setSpacing(6)
         for label, code in QUICK_MEDIA_CHIPS:
             btn = QPushButton(label)
-            btn.setStyleSheet("font-size: 11px; padding: 4px 9px; background: #161A26;")
+            btn.setStyleSheet("font-size: 11px; padding: 5px 10px; background: #161A26; border-radius: 6px; min-height: 26px;")
             btn.clicked.connect(lambda _, c=code: self._select_target_key(c))
             chips_row.addWidget(btn)
         chips_row.addStretch()
         media_box.addLayout(chips_row)
         tab_key_layout.addLayout(media_box)
 
-        # 3. Dropdown Search / Category Selector
+        # Dropdown Search / Category Selector
         cat_box = QHBoxLayout()
         cat_box.setSpacing(10)
         cat_box.addWidget(QLabel("Category:"))
         self.cat_combo = QComboBox()
-        self.cat_combo.setView(QListView())
+        configure_dark_combobox(self.cat_combo)
         for cat in REMAP_ACTION_CATEGORIES.keys():
             self.cat_combo.addItem(cat)
         self.cat_combo.currentIndexChanged.connect(self._populate_keys_combo)
@@ -244,26 +214,26 @@ class KeyConfigPanel(QFrame):
 
         cat_box.addWidget(QLabel("Action:"))
         self.key_action_combo = QComboBox()
-        self.key_action_combo.setView(QListView())
+        configure_dark_combobox(self.key_action_combo)
         self.key_action_combo.currentIndexChanged.connect(self._on_action_combo_changed)
         cat_box.addWidget(self.key_action_combo, 1)
         tab_key_layout.addLayout(cat_box)
 
         self.tabs.addTab(self.tab_key, get_icon("keyboard", size=14), "Key / Media")
 
-        # Tab 2: Macro Assignment
+        # --- Tab 2: Macro Assignment ---
         self.tab_macro = QWidget()
         tab_macro_layout = QVBoxLayout(self.tab_macro)
         tab_macro_layout.setContentsMargins(14, 14, 14, 14)
         tab_macro_layout.setSpacing(10)
-        tab_macro_layout.addWidget(QLabel("Select a saved macro to trigger:"))
+        tab_macro_layout.addWidget(QLabel("Select a saved macro sequence to trigger:"))
         self.macro_combo = QComboBox()
-        self.macro_combo.setView(QListView())
+        configure_dark_combobox(self.macro_combo)
         tab_macro_layout.addWidget(self.macro_combo)
         tab_macro_layout.addStretch()
-        self.tabs.addTab(self.tab_macro, get_icon("macro", size=14), "Macro")
+        self.tabs.addTab(self.tab_macro, get_icon("macro", size=14), "Macro Sequence")
 
-        # Tab 3: Linux Shell Command
+        # --- Tab 3: Linux Shell Command ---
         self.tab_command = QWidget()
         tab_cmd_layout = QVBoxLayout(self.tab_command)
         tab_cmd_layout.setContentsMargins(14, 14, 14, 14)
@@ -273,20 +243,13 @@ class KeyConfigPanel(QFrame):
         self.cmd_input.setPlaceholderText("e.g. kitty & or pactl set-sink-volume @DEFAULT_SINK@ +5%")
         tab_cmd_layout.addWidget(self.cmd_input)
 
-        presets_lbl = QLabel("Quick Presets:")
+        presets_lbl = QLabel("Quick Command Presets:")
         presets_lbl.setStyleSheet("color: #9CA3AF; font-size: 11px;")
         tab_cmd_layout.addWidget(presets_lbl)
 
         presets_layout = QHBoxLayout()
-        presets = [
-            ("Terminal", "kitty &"),
-            ("Screenshot", "grim -g \"$(slurp)\" - | wl-copy &"),
-            ("Volume +5%", "pactl set-sink-volume @DEFAULT_SINK@ +5%"),
-            ("Volume -5%", "pactl set-sink-volume @DEFAULT_SINK@ -5%"),
-            ("Mute Toggle", "pactl set-sink-mute @DEFAULT_SINK@ toggle"),
-            ("Next Track", "playerctl next"),
-        ]
-        for name, cmd in presets:
+        presets_layout.setSpacing(6)
+        for name, cmd in COMMAND_PRESETS:
             btn = QPushButton(name)
             btn.setStyleSheet("font-size: 11px; padding: 4px 8px; background: #161A26;")
             btn.clicked.connect(lambda _, c=cmd: self.cmd_input.setText(c))
@@ -298,7 +261,7 @@ class KeyConfigPanel(QFrame):
 
         layout.addWidget(self.tabs)
 
-        # Bottom Actions Row
+        # 4. Bottom Actions Row
         btn_layout = QHBoxLayout()
         self.reset_btn = QPushButton("Reset to Default")
         self.reset_btn.setIcon(get_icon("trash", normal_color="#F87171", size=14))
@@ -328,6 +291,28 @@ class KeyConfigPanel(QFrame):
     def _on_key_captured(self, code: str):
         self.selected_target_key = code
         self._sync_combo_to_key(code)
+
+    def _on_shortcut_recorded(self, keys: List[str]):
+        self._sync_modifier_chips(keys)
+
+    def _on_modifiers_updated(self, held_mods: Set[str]):
+        for mod_code, btn in self.modifier_buttons.items():
+            btn.blockSignals(True)
+            btn.setChecked(mod_code in held_mods)
+            btn.blockSignals(False)
+
+    def _toggle_modifier(self, mod_code: str, active: bool):
+        self.shortcut_capture_box.set_modifier_toggled(mod_code, active)
+
+    def _apply_preset_shortcut(self, keys: List[str]):
+        self.shortcut_capture_box.set_keys(keys)
+        self._sync_modifier_chips(keys)
+
+    def _sync_modifier_chips(self, keys: List[str]):
+        for mod_code, btn in self.modifier_buttons.items():
+            btn.blockSignals(True)
+            btn.setChecked(mod_code in keys)
+            btn.blockSignals(False)
 
     def _sync_combo_to_key(self, code: str):
         for cat, items in REMAP_ACTION_CATEGORIES.items():
@@ -391,25 +376,38 @@ class KeyConfigPanel(QFrame):
         remap = self.profile_manager.get_remapping(self.active_target_id)
         if not remap:
             self.status_badge.setText("Default")
-            self.status_badge.setStyleSheet("color: #9CA3AF;")
-            self.tabs.setCurrentIndex(0)
+            self.status_badge.setStyleSheet("color: #9CA3AF; background-color: #1A1F2C; border: 1px solid #283042; padding: 3px 8px; border-radius: 4px;")
+            self.status_badge.adjustSize()
             default_key = self.current_key.keycode_name if (self.current_key and not self.current_key.is_knob) else "KEY_MUTE"
             self._select_target_key(default_key)
             self.cmd_input.clear()
+            # If knob, default tab is Key/Media (tab 1); if key switch, default tab is Shortcut (tab 0)
+            self.tabs.setCurrentIndex(1 if (self.current_key and self.current_key.is_knob) else 0)
             return
 
         remap_type = remap.get("type")
-        if remap_type == "key":
+        if remap_type == "shortcut":
+            keys = remap.get("keys", [])
+            clean_str = " + ".join(k.replace("KEY_LEFT", "").replace("KEY_RIGHT", "").replace("KEY_", "") for k in keys)
+            self.status_badge.setText(f"Shortcut: {clean_str}")
+            self.status_badge.setStyleSheet("color: #38BDF8; background-color: #122538; border: 1px solid #1D4363; padding: 3px 8px; border-radius: 4px;")
+            self.status_badge.adjustSize()
+            self.tabs.setCurrentIndex(0)
+            self.shortcut_capture_box.set_keys(keys)
+            self._sync_modifier_chips(keys)
+        elif remap_type == "key":
             target = remap.get("target")
             clean_name = target.replace("KEY_", "")
             self.status_badge.setText(f"Mapped: {clean_name}")
-            self.status_badge.setStyleSheet("color: #6366F1;")
-            self.tabs.setCurrentIndex(0)
+            self.status_badge.setStyleSheet("color: #6366F1; background-color: #1D1E3A; border: 1px solid #34376E; padding: 3px 8px; border-radius: 4px;")
+            self.status_badge.adjustSize()
+            self.tabs.setCurrentIndex(1)
             self._select_target_key(target)
         elif remap_type == "macro":
             self.status_badge.setText("Macro Assigned")
-            self.status_badge.setStyleSheet("color: #38BDF8;")
-            self.tabs.setCurrentIndex(1)
+            self.status_badge.setStyleSheet("color: #A855F7; background-color: #271638; border: 1px solid #48236A; padding: 3px 8px; border-radius: 4px;")
+            self.status_badge.adjustSize()
+            self.tabs.setCurrentIndex(2)
             macro_id = remap.get("macro_id")
             for i in range(self.macro_combo.count()):
                 if self.macro_combo.itemData(i) == macro_id:
@@ -417,21 +415,30 @@ class KeyConfigPanel(QFrame):
                     break
         elif remap_type == "command":
             self.status_badge.setText("Shell Command")
-            self.status_badge.setStyleSheet("color: #10B981;")
-            self.tabs.setCurrentIndex(2)
+            self.status_badge.setStyleSheet("color: #10B981; background-color: #13261C; border: 1px solid #1E4D38; padding: 3px 8px; border-radius: 4px;")
+            self.status_badge.adjustSize()
+            self.tabs.setCurrentIndex(3)
             self.cmd_input.setText(remap.get("command", ""))
 
     def _on_apply_remap(self):
         tab_idx = self.tabs.currentIndex()
-        if tab_idx == 0:
+        if tab_idx == 0:  # Shortcut
+            keys = self.shortcut_capture_box.captured_keys
+            if keys:
+                self.profile_manager.set_remapping(self.active_target_id, {
+                    "type": "shortcut",
+                    "name": f"Shortcut for {self.active_target_id}",
+                    "keys": list(keys)
+                })
+        elif tab_idx == 1:  # Single Key / Media
             target_key = self.selected_target_key or self.key_action_combo.currentData()
             if target_key:
                 self.profile_manager.set_key_remap(self.active_target_id, target_key)
-        elif tab_idx == 1:
+        elif tab_idx == 2:  # Macro
             macro_id = self.macro_combo.currentData()
             if macro_id:
                 self.profile_manager.set_macro_remap(self.active_target_id, macro_id)
-        elif tab_idx == 2:
+        elif tab_idx == 3:  # Linux Command
             cmd = self.cmd_input.text().strip()
             if cmd:
                 self.profile_manager.set_command_remap(self.active_target_id, cmd)

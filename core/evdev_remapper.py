@@ -70,8 +70,8 @@ class EvdevRemapper:
             self.uinput = UInput(
                 capabilities,
                 name="Lingbao MK75 Virtual Keyboard",
-                vendor=0x3554,
-                product=0xFA09,
+                vendor=0x1234,
+                product=0x7500,
                 version=0x0111
             )
             self.macro_engine.set_uinput(self.uinput)
@@ -102,6 +102,8 @@ class EvdevRemapper:
             if os.path.exists(path) and os.access(path, os.R_OK):
                 try:
                     dev = evdev.InputDevice(path)
+                    if dev.name == "Lingbao MK75 Virtual Keyboard":
+                        continue
                     caps = dev.capabilities()
                     # Only grab devices that report EV_KEY or EV_REL
                     if ecodes.EV_KEY in caps or ecodes.EV_REL in caps:
@@ -216,24 +218,28 @@ class EvdevRemapper:
                             self.uinput.write(ecodes.EV_KEY, target_code, event.value)
                             self.uinput.syn()
                         return
-                elif remap_type in ("macro", "shortcut", "text") and event.value == 1:
-                    if remap_type == "macro":
-                        macro_id = remap.get("macro_id")
-                        macro = next((m for m in self.profile_manager.get_macros() if m.get("id") == macro_id), None)
-                    else:
-                        macro = remap
-                    if macro:
-                        self.macro_engine.run_macro_async(macro)
-                        return
-                elif remap_type == "command" and event.value == 1:
-                    cmd = remap.get("command")
-                    if cmd:
-                        try:
-                            logger.info(f"Triggering mapped shell command: {cmd}")
-                            subprocess.Popen(cmd, shell=True)
-                        except Exception as e:
-                            logger.error(f"Command execution error: {e}")
-                        return
+                elif remap_type in ("macro", "shortcut", "text"):
+                    if event.value == 1:
+                        if remap_type == "macro":
+                            macro_id = remap.get("macro_id")
+                            macro = next((m for m in self.profile_manager.get_macros() if m.get("id") == macro_id), None)
+                        else:
+                            macro = remap
+                        if macro:
+                            self.macro_engine.run_macro_async(macro)
+                    # Consume press, release, and repeat events for remapped shortcut/macro
+                    return
+                elif remap_type == "command":
+                    if event.value == 1:
+                        cmd = remap.get("command")
+                        if cmd:
+                            try:
+                                logger.info(f"Triggering mapped shell command: {cmd}")
+                                subprocess.Popen(cmd, shell=True)
+                            except Exception as e:
+                                logger.error(f"Command execution error: {e}")
+                    # Consume press, release, and repeat events for remapped shell command
+                    return
 
             # Default passthrough
             self.uinput.write(event.type, event.code, event.value)

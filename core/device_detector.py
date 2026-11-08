@@ -82,12 +82,13 @@ class MK75Detector:
                     else:
                         info.connection_type = "USB-C Wired"
 
-                # Collect all event handlers for this device
-                for handler in dev.get("handlers", []):
-                    if handler.startswith("event"):
-                        event_path = f"/dev/input/{handler}"
-                        if event_path not in info.event_paths:
-                            info.event_paths.append(event_path)
+                # Collect all event handlers for this device (skip mouse-only endpoints)
+                if "mouse" not in name_lower:
+                    for handler in dev.get("handlers", []):
+                        if handler.startswith("event"):
+                            event_path = f"/dev/input/{handler}"
+                            if event_path not in info.event_paths:
+                                info.event_paths.append(event_path)
 
         # 2. Check /sys/class/hidraw to locate matching hidraw nodes
         cls._scan_hidraw(info)
@@ -131,6 +132,11 @@ class MK75Detector:
                 elif line.startswith("S: Sysfs="):
                     dev["sysfs"] = line.split("Sysfs=", 1)[1].strip()
             if dev:
+                name = dev.get("name", "")
+                sysfs = dev.get("sysfs", "")
+                # Exclude any virtual input device (including our own uinput remapper)
+                if "Virtual" in name or "virtual" in sysfs:
+                    continue
                 devices.append(dev)
         return devices
 

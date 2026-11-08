@@ -163,15 +163,20 @@ QComboBox::drop-down {{
     width: 24px;
 }}
 
-/* Force popup listview to dark background across all desktop engines */
+/* Force popup listview and container to dark background across all desktop engines */
+QComboBoxPrivateContainer {{
+    background-color: #131620;
+    border: 1px solid #2B3245;
+}}
+
 QComboBox QAbstractItemView,
 QComboBox QListView,
 QListView {{
-    background-color: #131620 !important;
-    background: #131620 !important;
-    color: #F1F3F7 !important;
-    selection-background-color: {ACCENT_PRIMARY} !important;
-    selection-color: #FFFFFF !important;
+    background-color: #131620;
+    background: #131620;
+    color: #F1F3F7;
+    selection-background-color: {ACCENT_PRIMARY};
+    selection-color: #FFFFFF;
     border: 1px solid #2B3245;
     border-radius: 6px;
     padding: 4px;
@@ -183,7 +188,7 @@ QComboBox QListView::item,
 QListView::item {{
     min-height: 28px;
     padding: 4px 10px;
-    color: #E2E8F0 !important;
+    color: #E2E8F0;
     border-radius: 4px;
     background-color: #131620;
 }}
@@ -191,15 +196,15 @@ QListView::item {{
 QComboBox QAbstractItemView::item:selected,
 QComboBox QListView::item:selected,
 QListView::item:selected {{
-    background-color: {ACCENT_PRIMARY} !important;
-    color: #FFFFFF !important;
+    background-color: {ACCENT_PRIMARY};
+    color: #FFFFFF;
 }}
 
 QComboBox QAbstractItemView::item:hover,
 QComboBox QListView::item:hover,
 QListView::item:hover {{
-    background-color: #212738 !important;
-    color: #FFFFFF !important;
+    background-color: #212738;
+    color: #FFFFFF;
 }}
 
 QMenu {{
@@ -333,3 +338,47 @@ QHeaderView::section {{
     font-weight: 600;
 }}
 """
+
+from PySide6.QtWidgets import QComboBox, QListView
+from PySide6.QtGui import QColor, QPalette
+
+def configure_dark_combobox(combo: QComboBox):
+    """
+    Applies explicit dark palette and dark listview delegate to a QComboBox.
+    Ensures dropdown popup never displays a white background on Wayland or light system themes.
+    """
+    view = QListView()
+    view.setStyleSheet("""
+        QListView {
+            background-color: #131620;
+            color: #F1F3F7;
+            border: 1px solid #2B3245;
+            border-radius: 6px;
+            padding: 4px;
+            outline: none;
+        }
+        QListView::item {
+            min-height: 28px;
+            padding: 4px 10px;
+            color: #E2E8F0;
+            border-radius: 4px;
+            background-color: #131620;
+        }
+        QListView::item:selected {
+            background-color: #6366F1;
+            color: #FFFFFF;
+        }
+        QListView::item:hover {
+            background-color: #212738;
+            color: #FFFFFF;
+        }
+    """)
+    pal = view.palette()
+    pal.setColor(QPalette.Base, QColor("#131620"))
+    pal.setColor(QPalette.Window, QColor("#131620"))
+    pal.setColor(QPalette.Text, QColor("#F1F3F7"))
+    pal.setColor(QPalette.Highlight, QColor("#6366F1"))
+    pal.setColor(QPalette.HighlightedText, QColor("#FFFFFF"))
+    view.setPalette(pal)
+    combo.setView(view)
+
