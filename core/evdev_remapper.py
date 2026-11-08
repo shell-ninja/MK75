@@ -267,6 +267,12 @@ class EvdevRemapper:
                 elif event.value == 0:
                     self.active_raw_modifiers.discard(raw_key_name)
 
+                # Hardware modifier keys (Ctrl, Shift, Alt, Super) must ALWAYS pass through
+                # directly to uinput so system shortcuts and typing are never broken.
+                self.uinput.write(event.type, event.code, event.value)
+                self.uinput.syn()
+                return
+
             # Check if this key was part of an intercepted combo macro
             if raw_key_name in self.suppressed_combo_keys:
                 if event.value == 0:

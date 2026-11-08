@@ -721,9 +721,25 @@ class MacroEditorDialog(QDialog):
         if self.action_type == "command" and not self.cmd_input.text().strip():
             QMessageBox.warning(self, "Missing Command", "Please provide a Linux command or application to execute.")
             return
-        elif self.action_type == "shortcut" and not self.shortcut_input.text().strip():
-            QMessageBox.warning(self, "Missing Shortcut", "Please provide keycodes for the shortcut to dispatch.")
-            return
+        elif self.action_type == "shortcut":
+            sc_text = self.shortcut_input.text().strip()
+            if not sc_text:
+                QMessageBox.warning(self, "Missing Shortcut", "Please provide keycodes for the shortcut to dispatch.")
+                return
+
+            # Check for circular self-binding (e.g. Trigger CTRL+V -> Action Ctrl+V or CTRL+C -> Ctrl+C)
+            sc_raw = sc_text.upper()
+            ordered_mods = [m for m in MODIFIER_OPTIONS if m in self.selected_modifiers]
+            clean_k = self.selected_key.strip().upper()
+            if ordered_mods == ["CTRL"] and clean_k in ("C", "V", "X", "Z", "A"):
+                if f"KEY_{clean_k}" in sc_raw and "CTRL" in sc_raw and "SHIFT" not in sc_raw and "ALT" not in sc_raw:
+                    QMessageBox.information(
+                        self,
+                        "Native Shortcut",
+                        f"CTRL + {clean_k} is already your operating system's native shortcut (Copy/Paste/Undo/Select).\n\n"
+                        "You do not need to bind it to itself — standard shortcuts work out of the box!"
+                    )
+                    return
         elif self.action_type == "text" and not self.text_input.text().strip():
             QMessageBox.warning(self, "Missing Text", "Please provide text snippet to type.")
             return

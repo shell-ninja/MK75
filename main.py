@@ -52,6 +52,17 @@ def main():
         print("==================================================")
         sys.exit(0)
 
+    # Enforce single application instance to prevent conflicting kernel grabs
+    import fcntl
+    lock_dir = args.config_dir or os.path.expanduser("~/.config/lingbao-mk75")
+    os.makedirs(lock_dir, exist_ok=True)
+    lock_file = open(os.path.join(lock_dir, "mk75.lock"), "w")
+    try:
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (IOError, BlockingIOError):
+        logger.warning("Another instance of MK75 is already running. Exiting.")
+        sys.exit(0)
+
     logger.info("Initializing Lingbao MK75 Linux Controller...")
 
     # Core backends

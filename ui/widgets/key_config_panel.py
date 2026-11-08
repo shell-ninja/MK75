@@ -417,6 +417,8 @@ class KeyConfigPanel(QFrame):
             self.selected_target_key = default_key
             self.key_capture_box.set_key(default_key)
             self._sync_combo_to_key(default_key)
+            self.shortcut_capture_box.set_keys([], emit_signal=False)
+            self._sync_modifier_chips([])
             self.cmd_input.clear()
             if not skip_tab:
                 # If knob, default tab is Key/Media (tab 1); if key switch, default tab is Shortcut (tab 0)
@@ -466,8 +468,15 @@ class KeyConfigPanel(QFrame):
                 self.tabs.setCurrentIndex(3)
             self.cmd_input.setText(remap.get("command", ""))
 
+    PROTECTED_MODIFIER_KEYS = {
+        "KEY_LEFTCTRL", "KEY_RIGHTCTRL", "KEY_LEFTSHIFT", "KEY_RIGHTSHIFT",
+        "KEY_LEFTALT", "KEY_RIGHTALT", "KEY_LEFTMETA", "KEY_RIGHTMETA"
+    }
+
     def _auto_apply_shortcut(self, keys: List[str]):
         if not keys or not self.active_target_id:
+            return
+        if self.active_target_id in self.PROTECTED_MODIFIER_KEYS:
             return
         self.profile_manager.set_remapping(self.active_target_id, {
             "type": "shortcut",
@@ -480,6 +489,8 @@ class KeyConfigPanel(QFrame):
     def _auto_apply_key(self, code: str):
         if not code or not self.active_target_id:
             return
+        if self.active_target_id in self.PROTECTED_MODIFIER_KEYS:
+            return
         self.profile_manager.set_key_remap(self.active_target_id, code)
         self._load_active_mapping(skip_tab=True)
         self.remap_changed.emit()
@@ -487,12 +498,16 @@ class KeyConfigPanel(QFrame):
     def _auto_apply_macro(self, macro_id: str):
         if not macro_id or not self.active_target_id:
             return
+        if self.active_target_id in self.PROTECTED_MODIFIER_KEYS:
+            return
         self.profile_manager.set_macro_remap(self.active_target_id, macro_id)
         self._load_active_mapping(skip_tab=True)
         self.remap_changed.emit()
 
     def _auto_apply_command(self, cmd: str):
         if not self.active_target_id:
+            return
+        if self.active_target_id in self.PROTECTED_MODIFIER_KEYS:
             return
         cmd = cmd.strip()
         if cmd:
