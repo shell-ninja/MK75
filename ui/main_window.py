@@ -203,18 +203,17 @@ class MainWindow(QMainWindow):
     def _connect_signals(self):
         self.visualizer.key_selected.connect(self.config_panel.set_key)
         self.config_panel.remap_changed.connect(self.visualizer.update)
-        self.config_panel.remap_changed.connect(self.page_macros.visualizer.update)
+        self.config_panel.remap_changed.connect(self.page_macros.refresh_list)
         self.page_macros.macro_changed.connect(self.visualizer.update)
-        self.page_macros.macro_changed.connect(lambda: self.visualizer.select_key(self.visualizer.selected_key_id))
+        self.page_macros.macro_changed.connect(self.config_panel._populate_macros_combo)
         self.remapper.add_key_listener(self._on_hardware_keypress)
         self.page_lighting.lighting_applied.connect(lambda _: self.visualizer.update())
-        self.page_lighting.lighting_applied.connect(lambda _: self.page_macros.visualizer.update())
 
     def _on_nav_changed(self, row: int):
         if row >= 0:
             self.stack.setCurrentIndex(row)
             if row == 2 and hasattr(self, "page_macros"):
-                self.page_macros.visualizer.update()
+                self.page_macros.refresh_list()
 
     def _on_hardware_keypress(self, key_id: str, value: int):
         self.visualizer.set_key_pressed(key_id, value > 0)

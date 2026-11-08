@@ -41,20 +41,38 @@ DEFAULT_PROFILE: Dict[str, Any] = {
         {
             "id": "macro_term",
             "name": "Quick Terminal",
-            "type": "command",
-            "command": "kitty &"
+            "trigger": {
+                "modifiers": ["CTRL", "SHIFT"],
+                "key": "KEY_K"
+            },
+            "action": {
+                "type": "command",
+                "command": "kitty &"
+            }
         },
         {
             "id": "macro_mute_mic",
             "name": "Mute Microphone",
-            "type": "command",
-            "command": "pactl set-source-mute @DEFAULT_SOURCE@ toggle"
+            "trigger": {
+                "modifiers": ["SUPER"],
+                "key": "KEY_M"
+            },
+            "action": {
+                "type": "command",
+                "command": "pactl set-source-mute @DEFAULT_SOURCE@ toggle"
+            }
         },
         {
             "id": "macro_paste",
             "name": "Quick Paste",
-            "type": "shortcut",
-            "keys": ["KEY_LEFTCTRL", "KEY_V"]
+            "trigger": {
+                "modifiers": ["SUPER"],
+                "key": "KEY_V"
+            },
+            "action": {
+                "type": "shortcut",
+                "keys": ["KEY_LEFTCTRL", "KEY_V"]
+            }
         }
     ]
 }

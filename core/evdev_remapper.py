@@ -10,7 +10,7 @@ import select
 import logging
 import threading
 import subprocess
-from typing import Dict, Any, Optional, List, Callable
+from typing import Dict, Any, Optional, List, Callable, Set
 
 import evdev
 from evdev import ecodes, UInput
@@ -29,6 +29,17 @@ def get_canonical_key_name(code: int) -> str:
         return candidates[0] if candidates else raw[0]
     return raw
 
+MODIFIER_NAME_TO_ALIAS = {
+    "KEY_LEFTCTRL": "CTRL",
+    "KEY_RIGHTCTRL": "CTRL",
+    "KEY_LEFTSHIFT": "SHIFT",
+    "KEY_RIGHTSHIFT": "SHIFT",
+    "KEY_LEFTALT": "ALT",
+    "KEY_RIGHTALT": "ALT",
+    "KEY_LEFTMETA": "SUPER",
+    "KEY_RIGHTMETA": "SUPER",
+}
+
 class EvdevRemapper:
     """Background listener and remapping pipeline using evdev and uinput."""
 
@@ -40,6 +51,58 @@ class EvdevRemapper:
         self.devices: List[evdev.InputDevice] = []
         self.uinput: Optional[UInput] = None
         self.macro_engine.set_uinput(self.uinput)
+        self.active_raw_modifiers: Set[str] = set()
+        self.suppressed_combo_keys: Set[str] = set()
+        self.key_event_listeners: List[Callable[[str, int], None]] = []
+
+    @property
+    def active_modifiers(self) -> Set[str]:
+        return {MODIFIER_NAME_TO_ALIAS[k] for k in self.active_raw_modifiers if k in MODIFIER_NAME_TO_ALIAS}
+
+    def _find_matching_combo_macro(self, active_mods: Set[str], key_name: str) -> Optional[Dict[str, Any]]:
+        """Finds any macro whose trigger matches the currently pressed modifier combo and key."""
+        if not active_mods:
+            return None
+        macros = self.profile_manager.get_macros()
+        for m in macros:
+            trigger = m.get("trigger")
+            if not trigger or not isinstance(trigger, dict):
+                continue
+            req_mods = set(trigger.get("modifiers", []))
+            req_key = str(trigger.get("key", "")).upper()
+
+            # Normalize keys (strip KEY_ prefix if comparing)
+            raw_clean = key_name.upper()
+            raw_short = raw_clean[4:] if raw_clean.startswith("KEY_") else raw_clean
+            req_short = req_key[4:] if req_key.startswith("KEY_") else req_key
+
+            if req_mods == active_mods and (req_key == raw_clean or req_short == raw_short):
+                return m
+        return None
+
+    def _release_active_modifiers(self) -> List[int]:
+        """Temporarily releases held modifiers on the virtual uinput device."""
+        if not self.uinput:
+            return []
+        released = []
+        for mod_name in list(self.active_raw_modifiers):
+            code = getattr(ecodes, mod_name, None)
+            if code is not None:
+                self.uinput.write(ecodes.EV_KEY, code, 0)
+                released.append(code)
+        if released:
+            self.uinput.syn()
+        return released
+
+    def _restore_modifiers(self, codes: List[int]):
+        """Restores physical modifiers on uinput if still held down."""
+        if not self.uinput or not codes:
+            return
+        for code in codes:
+            raw_name = get_canonical_key_name(code)
+            if raw_name in self.active_raw_modifiers:
+                self.uinput.write(ecodes.EV_KEY, code, 1)
+        self.uinput.syn()
 
         # Callbacks for UI event notifications (e.g. visualizing keypresses in real-time)
         self.key_event_listeners: List[Callable[[str, int], None]] = []
@@ -139,6 +202,8 @@ class EvdevRemapper:
         logger.info("EvdevRemapper stopped.")
 
     def _cleanup_devices(self):
+        self.active_raw_modifiers.clear()
+        self.suppressed_combo_keys.clear()
         for dev in self.devices:
             try:
                 dev.ungrab()
@@ -194,6 +259,41 @@ class EvdevRemapper:
                 key_id = "KNOB_CLICK"
 
             self._notify_key(key_id, event.value)
+
+            # Update modifier tracking
+            if raw_key_name in MODIFIER_NAME_TO_ALIAS:
+                if event.value in (1, 2):
+                    self.active_raw_modifiers.add(raw_key_name)
+                elif event.value == 0:
+                    self.active_raw_modifiers.discard(raw_key_name)
+
+            # Check if this key was part of an intercepted combo macro
+            if raw_key_name in self.suppressed_combo_keys:
+                if event.value == 0:
+                    self.suppressed_combo_keys.discard(raw_key_name)
+                return
+
+            # Check for combo macro trigger on key press (event.value == 1)
+            if event.value == 1 and self.active_modifiers and raw_key_name not in MODIFIER_NAME_TO_ALIAS:
+                combo_macro = self._find_matching_combo_macro(self.active_modifiers, raw_key_name)
+                if combo_macro:
+                    self.suppressed_combo_keys.add(raw_key_name)
+                    action = combo_macro.get("action", combo_macro)
+                    logger.info(
+                        f"Matched combo keybinding: {list(self.active_modifiers)} + {raw_key_name} -> {combo_macro.get('name', 'Action')}"
+                    )
+                    act_type = action.get("type", "command")
+                    if act_type == "command":
+                        cmd = action.get("command")
+                        if cmd:
+                            try:
+                                subprocess.Popen(cmd, shell=True)
+                            except Exception as e:
+                                logger.error(f"Failed to execute combo command: {e}")
+                    else:
+                        released = self._release_active_modifiers()
+                        self.macro_engine.run_macro_async(action, on_complete=lambda: self._restore_modifiers(released))
+                    return
 
             # Check for remapping
             remap = self.profile_manager.get_remapping(key_id)

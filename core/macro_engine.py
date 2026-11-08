@@ -7,7 +7,7 @@ import time
 import logging
 import threading
 import subprocess
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Callable
 import evdev
 from evdev import ecodes
 
@@ -62,19 +62,37 @@ class MacroEngine:
     def set_uinput(self, uinput_device):
         self.uinput_device = uinput_device
 
-    def run_macro_async(self, macro: Dict[str, Any]):
+    def run_macro_async(self, macro: Dict[str, Any], on_complete: Optional[Callable[[], None]] = None):
         """Runs macro in a dedicated background daemon thread."""
-        thread = threading.Thread(target=self._execute, args=(macro,), daemon=True)
+        thread = threading.Thread(target=self._execute_with_callback, args=(macro, on_complete), daemon=True)
         thread.start()
 
+    def _execute_with_callback(self, macro: Dict[str, Any], on_complete: Optional[Callable[[], None]] = None):
+        try:
+            self._execute(macro)
+        finally:
+            if on_complete:
+                try:
+                    on_complete()
+                except Exception as e:
+                    logger.error(f"Error in macro on_complete callback: {e}")
+
     def _execute(self, macro: Dict[str, Any]):
-        name = macro.get("name", "Unnamed Macro")
-        mtype = macro.get("type", "shortcut")
+        if "action" in macro and isinstance(macro["action"], dict):
+            action_data = macro["action"]
+            name = macro.get("name", action_data.get("name", "Unnamed Macro"))
+            mtype = action_data.get("type", "command")
+            macro_obj = {**action_data, "name": name, "type": mtype}
+        else:
+            macro_obj = macro
+            name = macro.get("name", "Unnamed Macro")
+            mtype = macro.get("type", "shortcut")
+
         logger.info(f"Executing macro: {name} (type: {mtype})")
 
         # 1. Human-Friendly Shortcut Mode (e.g. ["KEY_LEFTCTRL", "KEY_LEFTSHIFT", "KEY_T"])
         if mtype == "shortcut":
-            keys = macro.get("keys", [])
+            keys = macro_obj.get("keys", [])
             if not keys or not self.uinput_device:
                 return
 
@@ -98,8 +116,8 @@ class MacroEngine:
 
         # 2. Text Expander Mode (Types string directly)
         elif mtype == "text":
-            text = macro.get("text", "")
-            delay_ms = macro.get("speed_ms", 12)
+            text = macro_obj.get("text", "")
+            delay_ms = macro_obj.get("speed_ms", 12)
             if not text or not self.uinput_device:
                 return
 
@@ -138,7 +156,7 @@ class MacroEngine:
 
         # 3. Shell Command Mode
         elif mtype == "command":
-            cmd = macro.get("command", "")
+            cmd = macro_obj.get("command", "")
             if cmd:
                 try:
                     subprocess.Popen(cmd, shell=True)
@@ -146,8 +164,8 @@ class MacroEngine:
                     logger.error(f"Error executing command '{cmd}': {e}")
 
         # 4. Fallback: Step Sequence
-        elif "steps" in macro:
-            for step in macro.get("steps", []):
+        elif "steps" in macro_obj:
+            for step in macro_obj.get("steps", []):
                 act = step.get("action")
                 if act == "command":
                     cmd = step.get("command")
