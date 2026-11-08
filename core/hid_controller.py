@@ -48,6 +48,7 @@ LED_SLOTS_OFFSET    = 58
 
 # 16 Hardware RGB Effects Mapping
 RGB_EFFECTS = [
+    {"id": 0,  "name": "Off (LEDs Disabled)",    "description": "Completely disables all keyboard matrix LEDs and illumination"},
     {"id": 1,  "name": "Static Color",           "description": "Solid uniform color across all keys"},
     {"id": 2,  "name": "Breathing",              "description": "Smooth fade in and out"},
     {"id": 3,  "name": "Spectrum / Cycle",       "description": "Smooth color spectrum cycle"},
@@ -63,7 +64,7 @@ RGB_EFFECTS = [
     {"id": 15, "name": "Rainbow Wheel",          "description": "Rotating pinwheel color spectrum"},
     {"id": 16, "name": "Waterfall",              "description": "Vertical cascading light matrix"},
     {"id": 17, "name": "Center Flash",           "description": "Fast strobe flicker from center outwards"},
-    {"id": 32, "name": "Custom / Stealth Off",   "description": "Per-key canvas table or all LEDs off"},
+    {"id": 32, "name": "Custom / Matrix Mode",   "description": "Per-key canvas table (requires streaming frame)"},
 ]
 
 # Side glow modes
@@ -104,6 +105,42 @@ def split_packets_13(cmd: int, sub: int, data: bytes) -> List[bytes]:
     chunks = [data[i:i + CHUNK_LEN] for i in range(0, len(data), CHUNK_LEN)] or [b""]
     return [build_packet_13(cmd, len(chunks), i, sub, c) for i, c in enumerate(chunks)]
 
+class BatteryStabilizer:
+    """
+    Stabilizes noisy ADC battery measurements from keyboard hardware.
+    Filters out voltage sag/bounce caused by LED current draw and RF bursts.
+    Ensures monotonic decay while on battery power and smooth transitions.
+    """
+    def __init__(self, initial_pct: int = 75):
+        self.stable_pct = initial_pct
+        self.samples: List[int] = [initial_pct]
+
+    def update(self, raw_val: int, is_charging: bool = False) -> int:
+        if not (1 <= raw_val <= 100):
+            return self.stable_pct or 75
+
+        self.samples.append(raw_val)
+        if len(self.samples) > 7:
+            self.samples.pop(0)
+
+        # 1. Median filter over recent samples to reject outlier spikes
+        sorted_samples = sorted(self.samples)
+        median_val = sorted_samples[len(sorted_samples) // 2]
+
+        if self.stable_pct is None:
+            self.stable_pct = median_val
+        elif not is_charging:
+            # When on wireless battery power: NEVER bounce upwards!
+            # Only allow descending when confirmed by median
+            if median_val < self.stable_pct:
+                self.stable_pct = median_val
+        else:
+            # When charging over wired USB: allow ascending
+            if median_val > self.stable_pct:
+                self.stable_pct = median_val
+
+        return self.stable_pct
+
 class MK75HardwareController:
     """Controls Lingbao MK75 hardware features via USB HID feature reports."""
 
@@ -114,7 +151,9 @@ class MK75HardwareController:
         self.hidraw_fd: Optional[int] = None
         self.connected = False
         self.packet_history: List[Dict[str, Any]] = []
-        self.last_battery_pct: Optional[int] = 72
+        self.battery_stabilizer = BatteryStabilizer(initial_pct=75)
+        self.last_battery_pct: Optional[int] = 75
+        self.current_effect_id: int = 6
 
     def connect(self, device_info: Optional[DeviceInfo] = None) -> bool:
         """Finds and opens the exact hidraw vendor configuration channel."""
@@ -176,13 +215,55 @@ class MK75HardwareController:
         if len(self.packet_history) > 100:
             self.packet_history.pop(0)
 
+    def read_led_config(self) -> Optional[bytearray]:
+        """Reads active 128-byte LedConfig block from keyboard via CMD 0x44."""
+        if not self.connected and not self.connect():
+            return None
+
+        # Drain any residual packets
+        while True:
+            r, _, _ = select.select([self.hidraw_fd], [], [], 0.01)
+            if r:
+                try:
+                    os.read(self.hidraw_fd, 64)
+                except Exception:
+                    break
+            else:
+                break
+
+        pkt = bytearray(20)
+        pkt[0] = REPORT_ID_WIRELESS
+        pkt[1] = CMD_SET_LED | READ_FLAG  # 0x44
+        pkt[19] = checksum(pkt)
+
+        try:
+            os.write(self.hidraw_fd, pkt)
+            raw = bytearray()
+            for _ in range(12):
+                r, _, _ = select.select([self.hidraw_fd], [], [], 0.08)
+                if r:
+                    d = os.read(self.hidraw_fd, 64)
+                    if len(d) >= 5 and d[0] == REPORT_ID_WIRELESS and d[1] == (CMD_SET_LED | READ_FLAG):
+                        chunk_len = d[4] & 0x0F
+                        raw.extend(d[5:5 + chunk_len])
+                else:
+                    break
+
+            if len(raw) >= LED_LEN:
+                return raw[:LED_LEN]
+        except Exception as e:
+            logger.debug(f"Failed to read LED config: {e}")
+
+        return None
+
     def set_lighting_effect(self, effect_id: int, brightness: int = 3, speed: int = 2,
                             rgb: Tuple[int, int, int] = (99, 102, 241),
                             side_glow: bool = True) -> bool:
         """
         Sends hardware lighting command.
-        Uses the proven 128-byte LedConfig block across 10 packets on Report 0x13,
-        AND dual-writes to Report 0x06 feature report for instant application.
+        Uses Read-Modify-Write on the proven 128-byte LedConfig block across 10 packets on Report 0x13,
+        AND dual-writes to Report 0x06 feature report for instant hardware application.
+        Effect ID 0 completely turns off all LEDs.
         """
         if not self.connected and not self.connect():
             return False
@@ -190,29 +271,43 @@ class MK75HardwareController:
         # Scale parameters
         # UI brightness: 0-4 -> scaled to 0-9 (0 = off)
         scaled_brightness = max(0, min(9, int(brightness * 2.25)))
-        # UI speed: 0-4
         scaled_speed = max(0, min(4, speed))
-        # Map RGB to closest palette index (0: red, 1: green, 2: blue, 3: yellow, 4: purple, 5: cyan, 6: white, 7: multi)
         color_idx = self._rgb_to_palette_idx(rgb)
 
         hw_effect = effect_id
         if hw_effect not in [e["id"] for e in RGB_EFFECTS]:
             hw_effect = 6  # Default Rainbow Wave
 
-        # 1. Build the 128-byte LedConfig block
-        raw = bytearray(LED_LEN)
+        # 1. Read-Modify-Write: Pull active 128-byte block to preserve firmware calibration
+        raw = self.read_led_config()
+        if not raw or len(raw) < LED_LEN:
+            raw = bytearray(LED_LEN)
+            raw[14] = 1
+            raw[24] = 4
+
         raw[126:128] = LED_MAGIC
-        raw[LED_EFFECT_OFFSET] = hw_effect
-        raw[LED_SIDE_MODE_OFFSET] = 1 if side_glow else 0
         raw[LED_KNOB_MODE_OFFSET] = 0  # media mode
         raw[LED_OS_MODE_OFFSET]   = 0  # windows mode
-        raw[LED_SLEEP_OFFSET]     = 4  # 2 min sleep timer
 
-        # Configure effect slot at 58 + 2 * (hw - 1)
-        if 1 <= hw_effect <= 34:
-            slot_off = LED_SLOTS_OFFSET + 2 * (hw_effect - 1)
-            raw[slot_off] = scaled_brightness
-            raw[slot_off + 1] = (scaled_speed << 4) | color_idx
+        # Check if turning OFF or setting brightness 0
+        if hw_effect == 0 or scaled_brightness == 0:
+            raw[LED_EFFECT_OFFSET] = 0
+            raw[LED_SIDE_MODE_OFFSET] = 0
+            # Zero out brightness across all slots
+            for eff in range(1, 35):
+                s = LED_SLOTS_OFFSET + 2 * (eff - 1)
+                if s < len(raw):
+                    raw[s] = 0
+        else:
+            raw[LED_EFFECT_OFFSET] = hw_effect
+            raw[LED_SIDE_MODE_OFFSET] = 1 if side_glow else 0
+            self.current_effect_id = hw_effect
+
+            # Configure effect slot at 58 + 2 * (hw - 1)
+            if 1 <= hw_effect <= 34:
+                slot_off = LED_SLOTS_OFFSET + 2 * (hw_effect - 1)
+                raw[slot_off] = scaled_brightness
+                raw[slot_off + 1] = (scaled_speed << 4) | color_idx
 
         # 2. Transmit via Report 0x13 (10 packets of 20 bytes each)
         ok_wireless = True
@@ -220,7 +315,7 @@ class MK75HardwareController:
         for p in pkts:
             try:
                 os.write(self.hidraw_fd, p)
-                self._record_packet("OUT (0x13)", p, True, f"LED block chunk")
+                self._record_packet("OUT (0x13)", p, True, "LED block chunk")
                 time.sleep(0.012)
             except Exception as e:
                 logger.error(f"Failed to write 0x13 packet: {e}")
@@ -232,9 +327,9 @@ class MK75HardwareController:
             buf6 = bytearray(8)
             buf6[0] = REPORT_ID_FEATURE
             buf6[1] = 0x04
-            buf6[2] = hw_effect
-            buf6[3] = int((scaled_brightness / 9.0) * 100)
-            buf6[4] = int((scaled_speed / 4.0) * 100)
+            buf6[2] = hw_effect if (hw_effect != 0 and scaled_brightness != 0) else 0
+            buf6[3] = int((scaled_brightness / 9.0) * 100) if (hw_effect != 0 and scaled_brightness != 0) else 0
+            buf6[4] = int((scaled_speed / 4.0) * 100) if (hw_effect != 0 and scaled_brightness != 0) else 0
             buf6[5] = rgb[0]
             buf6[6] = rgb[1]
             buf6[7] = rgb[2]
@@ -249,14 +344,16 @@ class MK75HardwareController:
     def turn_off_backlight(self) -> bool:
         """
         Completely turns off keyboard LEDs and side glow strips.
-        Sets hardware brightness to 0 and switches to stealth effect (32).
+        Sends hardware Effect ID 0 which disables all key LEDs in firmware.
         """
-        logger.info("Sending command to turn off keyboard backlight and side glow...")
-        return self.set_lighting_effect(effect_id=32, brightness=0, speed=0, rgb=(0, 0, 0), side_glow=False)
+        logger.info("Sending command to turn off keyboard backlight (Effect ID 0)...")
+        return self.set_lighting_effect(effect_id=0, brightness=0, speed=0, rgb=(0, 0, 0), side_glow=False)
 
     def turn_on_backlight(self, effect_id: int = 6, brightness: int = 3, speed: int = 2,
                           rgb: Tuple[int, int, int] = (99, 102, 241), side_glow: bool = True) -> bool:
         """Restores keyboard lighting."""
+        if effect_id == 0:
+            effect_id = getattr(self, "current_effect_id", 6) or 6
         logger.info(f"Turning on keyboard backlight (effect={effect_id}, brightness={brightness})...")
         return self.set_lighting_effect(effect_id=effect_id, brightness=brightness, speed=speed, rgb=rgb, side_glow=side_glow)
 
@@ -343,10 +440,12 @@ class MK75HardwareController:
                 profile_slot = resp[2]
                 mode_byte = resp[4]
                 mode_str = "2.4GHz Wireless" if mode_byte == 2 else ("Wired" if mode_byte == 1 else "Bluetooth")
-                battery_pct = resp[5]
+                raw_battery = resp[5]
                 is_online = (resp[6] == 1)
-                if battery_pct > 0:
-                    self.last_battery_pct = battery_pct
+                is_charging = (mode_byte == 1)
+
+                battery_pct = self.battery_stabilizer.update(raw_battery, is_charging=is_charging)
+                self.last_battery_pct = battery_pct
 
                 return {
                     "online": is_online,

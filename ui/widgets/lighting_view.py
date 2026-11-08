@@ -280,6 +280,14 @@ class LightingView(QWidget):
         self.power_status_desc.setText("Keyboard LEDs and illumination active")
         self.controls_widget.setEnabled(True)
 
+        if self.fx_combo.currentData() == 0:
+            for i in range(self.fx_combo.count()):
+                if self.fx_combo.itemData(i) == 6:
+                    self.fx_combo.blockSignals(True)
+                    self.fx_combo.setCurrentIndex(i)
+                    self.fx_combo.blockSignals(False)
+                    break
+
         self.profile_manager.update_lighting(backlight_enabled=True)
         self._apply_lighting()
 
@@ -314,18 +322,21 @@ class LightingView(QWidget):
         g = self.selected_color.green()
         b = self.selected_color.blue()
 
+        is_on = (effect_id != 0 and brightness > 0)
         self.power_toggle_btn.blockSignals(True)
-        self.power_toggle_btn.setChecked(True)
-        self.power_toggle_btn.setText("Backlight: ON")
+        self.power_toggle_btn.setChecked(is_on)
+        self.power_toggle_btn.setText("Backlight: ON" if is_on else "Backlight: OFF")
         self.power_toggle_btn.blockSignals(False)
-        self.power_status_desc.setText("Keyboard LEDs and illumination active")
-        self.controls_widget.setEnabled(True)
+        self.power_status_desc.setText(
+            "Keyboard LEDs and illumination active" if is_on else "Keyboard LEDs and illumination turned off"
+        )
+        self.controls_widget.setEnabled(is_on)
 
         # Update profile
         self.profile_manager.update_lighting(
-            backlight_enabled=True,
+            backlight_enabled=is_on,
             effect_id=effect_id,
-            effect_name=self.fx_combo.currentText().split(": ")[1],
+            effect_name=self.fx_combo.currentText().split(": ")[1] if ": " in self.fx_combo.currentText() else self.fx_combo.currentText(),
             brightness=brightness,
             speed=speed,
             color=[r, g, b],
@@ -342,8 +353,12 @@ class LightingView(QWidget):
         )
 
         if ok:
-            self.status_label.setText("Lighting settings applied to keyboard.")
-            self.status_label.setStyleSheet("color: #10B981; font-weight: 500;")
+            if is_on:
+                self.status_label.setText("Lighting settings applied to keyboard.")
+                self.status_label.setStyleSheet("color: #10B981; font-weight: 500;")
+            else:
+                self.status_label.setText("Backlight turned off.")
+                self.status_label.setStyleSheet("color: #F87171; font-weight: 500;")
         else:
             self.status_label.setText("Saved to profile. Reconnect keyboard to commit.")
             self.status_label.setStyleSheet("color: #F59E0B; font-weight: 500;")
