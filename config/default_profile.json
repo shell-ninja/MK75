@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "profile_name": "Default Profile",
+  "active": true,
+  "remapping": {
+    "KNOB_CW": {
+      "type": "key",
+      "target": "KEY_VOLUMEUP"
+    },
+    "KNOB_CCW": {
+      "type": "key",
+      "target": "KEY_VOLUMEDOWN"
+    },
+    "KNOB_CLICK": {
+      "type": "key",
+      "target": "KEY_MUTE"
+    }
+  },
+  "lighting": {
+    "effect_id": 3,
+    "effect_name": "Rainbow Wave",
+    "brightness": 3,
+    "speed": 2,
+    "color": [99, 102, 241],
+    "side_glow_enabled": true,
+    "side_glow_mode": 1
+  },
+  "macros": [
+    {
+      "id": "macro_terminal",
+      "name": "Launch Terminal",
+      "steps": [
+        {"action": "command", "command": "xdg-terminal-exec || gnome-terminal || alacritty || kitty || xterm &"}
+      ]
+    },
+    {
+      "id": "macro_emoji",
+      "name": "Emoji Picker (Super+.)",
+      "steps": [
+        {"action": "down", "key": "KEY_LEFTMETA"},
+        {"action": "down", "key": "KEY_DOT"},
+        {"action": "delay", "delay_ms": 50},
+        {"action": "up", "key": "KEY_DOT"},
+        {"action": "up", "key": "KEY_LEFTMETA"}
+      ]
+    }
+  ]
+}

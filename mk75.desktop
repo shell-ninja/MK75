@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=MK75
+GenericName=Keyboard Controller
+Comment=Native Linux Controller & Remapper for Lingbao MK75 Keyboard
+Exec=/home/shell-ninja/Code/mk75/run.sh
+Icon=mk75
+Terminal=false
+Categories=Utility;Settings;HardwareSettings;
+Keywords=keyboard;remap;rgb;lighting;knob;mk75;lingbao;
+StartupWMClass=mk75

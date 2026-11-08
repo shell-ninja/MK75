@@ -1,0 +1,22 @@
+# udev rules for Lingbao MK75 and compatible OEM keyboards (Compx / SinoWealth / Aula / Leobog / Soai)
+# Grants unprivileged user access to raw HID interfaces (/dev/hidraw*), event nodes (/dev/input/event*),
+# and the uinput virtual kernel device (/dev/uinput) for remapping and RGB lighting.
+
+# --- Virtual uinput device node permissions ---
+KERNEL=="uinput", SUBSYSTEM=="misc", MODE="0666", TAG+="uaccess", OPTIONS+="static_node=uinput"
+
+# --- Compx 2.4G Receiver & Wired variants (Lingbao MK75 default: 3554:fa09) ---
+KERNEL=="hidraw*", ATTRS{idVendor}=="3554", MODE="0666", TAG+="uaccess"
+SUBSYSTEM=="input", ATTRS{idVendor}=="3554", MODE="0666", TAG+="uaccess"
+
+# --- SinoWealth / EVision OEM variants (Aula F75, Leobog Hi75, Ajazz: 258a:*) ---
+KERNEL=="hidraw*", ATTRS{idVendor}=="258a", MODE="0666", TAG+="uaccess"
+SUBSYSTEM=="input", ATTRS{idVendor}=="258a", MODE="0666", TAG+="uaccess"
+
+# --- Sonix / Microdia OEM variants (0c45:*) ---
+KERNEL=="hidraw*", ATTRS{idVendor}=="0c45", MODE="0666", TAG+="uaccess"
+SUBSYSTEM=="input", ATTRS{idVendor}=="0c45", MODE="0666", TAG+="uaccess"
+
+# --- Ajazz / BY Tech OEM variants (320f:*) ---
+KERNEL=="hidraw*", ATTRS{idVendor}=="320f", MODE="0666", TAG+="uaccess"
+SUBSYSTEM=="input", ATTRS{idVendor}=="320f", MODE="0666", TAG+="uaccess"
